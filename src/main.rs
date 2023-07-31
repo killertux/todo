@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use leptos::leptos_dom::helpers::window_event_listener;
 use leptos::*;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use wasm_bindgen::JsCast;
 use web_sys::HtmlParagraphElement;
@@ -8,8 +9,8 @@ use web_sys::HtmlParagraphElement;
 fn main() {
     mount_to_body(|cx| {
         move || {
-            let (todo_list, set_todo_list) = create_signal(cx, List::new());
-            let (done_list, set_done_list) = create_signal(cx, List::new());
+            let (todo_list, set_todo_list) = load_and_create_todo_list_signal(cx);
+            let (done_list, set_done_list) = load_and_create_done_list_signal(cx);
 
             view! { cx,
                 <main class="flex flex-col justify-center items-center m-4 gap-6">
@@ -71,7 +72,7 @@ fn DoneCardList(cx: Scope, list: ReadSignal<List<DoneCard>>) -> impl IntoView {
             <h1 class="text-2xl font-bold">Done</h1>
             <hr class="h-1 w-5/6 bg-zinc-600 rounded-full my-2"></hr>
             <Show when={move || !list.get().is_empty()} fallback={move |_| view!{cx, <p class="text-zinc-400">"Nothing to see here!"</p>}}>
-                <For each={move || list.get().cards()} key={move |card| *card.uuid()} view={move |_, card| view!{cx,
+                <For each={move || list.get().cards_reverse()} key={move |card| *card.uuid()} view={move |_, card| view!{cx,
                     <div class="flex flex-col bg-zinc-100 rounded-md w-full hover:bg-zinc-50 transition ease-in-out justify-between h-fit items-center">
                         <p class="p-2 whitespace-pre-line">{card.card.text}</p>
                         <p class="mt-1 text-zinc-300 text-sm">Created at: {card.card.datetime.clone().to_rfc3339()}</p>
@@ -83,7 +84,7 @@ fn DoneCardList(cx: Scope, list: ReadSignal<List<DoneCard>>) -> impl IntoView {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct List<CardType>
 where
     CardType: Card,
@@ -105,6 +106,12 @@ where
 
     pub fn cards(&self) -> Vec<CardType> {
         self.cards.clone()
+    }
+
+    pub fn cards_reverse(&self) -> Vec<CardType> {
+        let mut result = self.cards();
+        result.reverse();
+        result
     }
 
     pub fn add_card(&mut self, data: impl Into<CardType>) {
@@ -142,18 +149,24 @@ where
     }
 }
 
+impl<T: Card> Default for List<T> {
+    fn default() -> Self {
+        List::new()
+    }
+}
+
 trait Card: Clone {
     fn uuid(&self) -> &Uuid;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct ToDoCard {
     pub uuid: Uuid,
     pub text: String,
     pub datetime: DateTime<Utc>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct DoneCard {
     pub card: ToDoCard,
     pub done_datetime: DateTime<Utc>,
@@ -231,4 +244,65 @@ fn setup_keyboard_events(
             _ => {}
         }
     });
+}
+
+fn load_and_create_todo_list_signal(
+    cx: Scope,
+) -> (ReadSignal<List<ToDoCard>>, WriteSignal<List<ToDoCard>>) {
+    let storage = window()
+        .local_storage()
+        .expect("Failed to get storage")
+        .unwrap();
+    let (todo_list, set_todo_list) = create_signal(
+        cx,
+        storage
+            .get("todo-todo-list")
+            .expect("Error getting item from storage")
+            .map(|text| {
+                serde_json::from_str::<List<ToDoCard>>(&text).expect("Error desserializing item")
+            })
+            .unwrap_or_default(),
+    );
+    create_effect(cx, move |_| {
+        let storage = window()
+            .local_storage()
+            .expect("Failed to get storage")
+            .unwrap();
+        storage.set(
+            "todo-todo-list",
+            &serde_json::to_string(&todo_list.get()).expect("Error serializing list"),
+        )
+    });
+    (todo_list, set_todo_list)
+}
+
+fn load_and_create_done_list_signal(
+    cx: Scope,
+) -> (ReadSignal<List<DoneCard>>, WriteSignal<List<DoneCard>>) {
+    let storage = window()
+        .local_storage()
+        .expect("Failed to get storage")
+        .unwrap();
+    let (done_list, set_done_list) = create_signal(
+        cx,
+        storage
+            .get("todo-done-list")
+            .expect("Error getting item from storage")
+            .map(|text| {
+                serde_json::from_str::<List<DoneCard>>(&text).expect("Error desserializing item")
+            })
+            .unwrap_or_default(),
+    );
+
+    create_effect(cx, move |_| {
+        let storage = window()
+            .local_storage()
+            .expect("Failed to get storage")
+            .unwrap();
+        storage.set(
+            "todo-done-list",
+            &serde_json::to_string(&done_list.get()).expect("Error serializing list"),
+        )
+    });
+    (done_list, set_done_list)
 }
