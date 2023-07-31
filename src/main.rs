@@ -1,18 +1,14 @@
 use chrono::{DateTime, Utc};
+use leptos::leptos_dom::helpers::window_event_listener;
 use leptos::*;
 use uuid::Uuid;
+use wasm_bindgen::JsCast;
+use web_sys::HtmlParagraphElement;
 
 fn main() {
     mount_to_body(|cx| {
         move || {
             let (todo_list, set_todo_list) = create_signal(cx, List::new());
-            set_todo_list.update(|list| {
-                list.add_card("Something very important to be done".to_string());
-                list.add_card("Another important thing to be done".to_string());
-                list.add_card(
-                    "Another very big important task that we need to se how it works".to_string(),
-                );
-            });
             let (done_list, set_done_list) = create_signal(cx, List::new());
 
             view! { cx,
@@ -32,6 +28,8 @@ fn ToDoCardList(
     set_list: WriteSignal<List<ToDoCard>>,
     done_card_set_list: WriteSignal<List<DoneCard>>,
 ) -> impl IntoView {
+    let (show_insert_card, set_show_insert_card) = create_signal(cx, false);
+    setup_keyboard_events(show_insert_card, set_show_insert_card, set_list);
     view! { cx,
         <div class="flex flex-col items-center rounded-lg shadow-zinc-400 shadow-lg hover:shadow-xl hover:shadow-zinc-400 p-2 bg-zinc-200 transition ease-in-out w-1/3 gap-2">
             <h1 class="text-2xl font-bold">ToDo</h1>
@@ -50,7 +48,7 @@ fn ToDoCardList(
                                 </svg>
                             </div>
                             <div class="flex flex-col p-2 justify-center items-center">
-                                <p class="">{card.text}</p>
+                                <p class="whitespace-pre-line">{card.text}</p>
                                 <p class="mt-1 text-zinc-300 text-sm">{card.datetime.clone().to_rfc3339()}</p>
                             </div>
                             <div class="bg-green-400 hover:bg-green-200 rounded-r-md p-2 transition ease-in-out cursor-pointer" on:click=move |_| set_list.update(|list| {let card = list.remove_card(&card_uuid); done_card_set_list.update(|done_list| done_list.add_card(card.unwrap()))})>
@@ -61,6 +59,7 @@ fn ToDoCardList(
                         </div>
                 }} />
             </Show>
+            <p type="text" contenteditable="true" id="new_card" class={move || format!("w-full bg-zinc-50 rounded-md p-2 whitespace-pre-line {}", if show_insert_card.get() {""} else {"hidden"})}></p>
         </div>
     }
 }
@@ -74,7 +73,7 @@ fn DoneCardList(cx: Scope, list: ReadSignal<List<DoneCard>>) -> impl IntoView {
             <Show when={move || !list.get().is_empty()} fallback={move |_| view!{cx, <p class="text-zinc-400">"Nothing to see here!"</p>}}>
                 <For each={move || list.get().cards()} key={move |card| *card.uuid()} view={move |_, card| view!{cx,
                     <div class="flex flex-col bg-zinc-100 rounded-md w-full hover:bg-zinc-50 transition ease-in-out justify-between h-fit items-center">
-                        <p class="p-2">{card.card.text}</p>
+                        <p class="p-2 whitespace-pre-line">{card.card.text}</p>
                         <p class="mt-1 text-zinc-300 text-sm">Created at: {card.card.datetime.clone().to_rfc3339()}</p>
                         <p class="mt-1 text-zinc-300 text-sm">Done at: {card.done_datetime.clone().to_rfc3339()}</p>
                     </div>
@@ -170,6 +169,16 @@ impl From<String> for ToDoCard {
     }
 }
 
+impl<'a> From<&'a str> for ToDoCard {
+    fn from(text: &'a str) -> Self {
+        Self {
+            uuid: Uuid::new_v4(),
+            text: text.to_string(),
+            datetime: Utc::now(),
+        }
+    }
+}
+
 impl From<ToDoCard> for DoneCard {
     fn from(card: ToDoCard) -> Self {
         Self {
@@ -189,4 +198,37 @@ impl Card for DoneCard {
     fn uuid(&self) -> &Uuid {
         &self.card.uuid
     }
+}
+
+fn get_element_by_id<T: JsCast>(element_id: impl AsRef<str>) -> T {
+    let window = web_sys::window().expect("global window does not exists");
+    let document = window.document().expect("expecting a document on window");
+    let element = document.get_element_by_id(element_id.as_ref()).unwrap();
+    element.dyn_into::<T>().unwrap()
+}
+
+fn setup_keyboard_events(
+    show_insert_card: ReadSignal<bool>,
+    set_show_insert_card: WriteSignal<bool>,
+    set_list: WriteSignal<List<ToDoCard>>,
+) {
+    window_event_listener(ev::keypress, move |ev| {
+        // ev is typed as KeyboardEvent automatically,
+        // so .code() can be called
+        let code = ev.code();
+        let input = get_element_by_id::<HtmlParagraphElement>("new_card");
+        match code.as_str() {
+            "KeyI" if !show_insert_card.get() => {
+                set_show_insert_card.set(true);
+                input.set_text_content(None);
+                input.focus().expect("Error focusing new card input");
+            }
+            "Enter" if ev.shift_key() && show_insert_card.get() => {
+                set_show_insert_card.set(false);
+                let value = input.inner_html();
+                set_list.update(|list| list.add_card(value.replace("<br>", "\n").trim()));
+            }
+            _ => {}
+        }
+    });
 }
