@@ -63,11 +63,15 @@ fn setup_keyboard_events(
                 set_show_insert_card.set(true);
                 input.set_text_content(None);
                 input.focus().expect("Error focusing new card input");
+                ev.prevent_default();
             }
             "Enter" if ev.shift_key() && show_insert_card.get() => {
                 set_show_insert_card.set(false);
-                let value = input.inner_html();
-                set_list.update(|list| list.add_card(value.replace("<br>", "\n").trim()));
+                if !input.text_content().unwrap_or_default().trim().is_empty() {
+                    let value = input.inner_html();
+                    set_list.update(|list| list.add_card(value.replace("<br>", "\n").trim()));
+                    ev.prevent_default();
+                }
             }
             _ => {}
         }
