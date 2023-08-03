@@ -69,7 +69,14 @@ fn setup_keyboard_events(
                 set_show_insert_card.set(false);
                 if !input.text_content().unwrap_or_default().trim().is_empty() {
                     let value = input.inner_html();
-                    set_list.update(|list| list.add_card(value.replace("<br>", "\n").trim()));
+                    set_list.update(|list| {
+                        list.add_card(
+                            value
+                                .replace("<br>", "\n")
+                                .replace("<div>\n</div>", "")
+                                .trim(),
+                        )
+                    });
                     ev.prevent_default();
                 }
             }
